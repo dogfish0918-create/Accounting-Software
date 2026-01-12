@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>記帳系統（作品集）</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif; }
+    body { margin: 0; background: #f6f7fb; color: #111; }
+    header { background:#111; color:#fff; padding:16px 20px; }
+    header h1 { margin:0; font-size:18px; letter-spacing:.5px; }
+    main { max-width: 980px; margin: 18px auto; padding: 0 16px; display: grid; gap: 16px; }
+    .grid { display:grid; grid-template-columns: 360px 1fr; gap: 16px; }
+    @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+
+    .card { background:#fff; border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.06); padding: 16px; }
+    .card h2 { margin:0 0 12px; font-size:16px; }
+    label { display:block; font-size: 12px; color:#444; margin: 10px 0 6px; }
+    input, select, textarea {
+      width: 100%; box-sizing:border-box;
+      padding: 10px 12px; border-radius: 10px;
+      border: 1px solid #ddd; background:#fff; outline:none;
+      font-size: 14px;
+    }
+    textarea { min-height: 70px; resize: vertical; }
+    .row { display:flex; gap: 10px; }
+    .row > div { flex:1; }
+    button {
+      border: 0; border-radius: 10px; padding: 10px 12px;
+      font-size: 14px; cursor: pointer;
+      background:#111; color:#fff;
+    }
+    button.secondary { background:#e9eaee; color:#111; }
+    button.danger { background:#e53935; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .muted { color:#666; font-size: 12px; }
+    .pill { display:inline-block; padding: 4px 8px; border-radius: 999px; font-size:12px; }
+    .income { background:#e8f5e9; color:#1b5e20; }
+    .expense { background:#ffebee; color:#b71c1c; }
+
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { text-align:left; font-size:12px; color:#555; }
+    td { font-size: 14px; }
+    .actions { display:flex; gap: 8px; justify-content: flex-end; }
+    .topbar { display:flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .topbar .left { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+    .toast { padding: 10px 12px; border-radius: 10px; background:#eef; color:#113; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>記帳系統（作品集）</h1>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- 左：新增記帳 + 月統計 -->
+      <section class="card">
+        <h2>新增記帳</h2>
+
+        <label>分類</label>
+        <select id="categorySelect"></select>
+
+        <label>項目標題</label>
+        <input id="titleInput" placeholder="例如：午餐 / 捷運 / 薪水" />
+
+        <div class="row">
+          <div>
+            <label>金額</label>
+            <input id="amountInput" type="number" min="1" placeholder="例如：120" />
+          </div>
+          <div>
+            <label>日期</label>
+            <input id="dateInput" type="date" />
+          </div>
+        </div>
+
+        <label>備註（可選）</label>
+        <textarea id="noteInput" placeholder="例如：便當"></textarea>
+
+        <div class="row" style="margin-top:12px;">
+  <button id="addBtn">新增</button>
+  <button id="cancelEditBtn" class="secondary hidden" type="button">取消編輯</button>
+  <button class="secondary" id="resetBtn" type="button">清空</button>
+</div>
+
+        <hr style="border:none;border-top:1px solid #eee;margin:16px 0;">
+
+        <h2>月統計</h2>
+        <div class="row">
+          <div>
+            <label>Year</label>
+            <input id="yearInput" type="number" min="2000" max="2100" />
+          </div>
+          <div>
+            <label>Month</label>
+            <input id="monthInput" type="number" min="1" max="12" />
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <button id="summaryBtn" class="secondary" type="button">查詢月統計</button>
+        </div>
+
+        <div id="summaryBox" class="toast hidden" style="margin-top:12px;"></div>
+
+        <p class="muted" style="margin-top:12px;">
+          API Base：<span id="apiBaseText"></span>
+        </p>
+      </section>
+
+      <!-- 右：清單 -->
+      <section class="card">
+        <div class="topbar">
+          <div class="left">
+            <h2 style="margin:0;">記帳清單</h2>
+            <span class="muted" id="countText"></span>
+          </div>
+          <div class="actions">
+            <button class="secondary" id="reloadBtn" type="button">重新整理</button>
+          </div>
+        </div>
+
+        <div id="msg" class="toast hidden" style="margin:12px 0;"></div>
+
+        <div style="overflow:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>分類</th>
+                <th>標題</th>
+                <th style="width:120px;">金額</th>
+                <th>備註</th>
+                <th style="width:120px;"></th>
+              </tr>
+            </thead>
+            <tbody id="recordsTbody"></tbody>
+          </table>
+        </div>
+
+        <p class="muted" style="margin-top:12px;">
+          小提示：刪除會立即反映；新增後會自動刷新清單。
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE = location.origin; // 同源最穩
+    document.getElementById("apiBaseText").textContent = API_BASE;
+
+ const els = {
+  categorySelect: document.getElementById("categorySelect"),
+  titleInput: document.getElementById("titleInput"),
+  amountInput: document.getElementById("amountInput"),
+  dateInput: document.getElementById("dateInput"),
+  noteInput: document.getElementById("noteInput"),
+
+  addBtn: document.getElementById("addBtn"),
+  cancelEditBtn: document.getElementById("cancelEditBtn"),
+  resetBtn: document.getElementById("resetBtn"),
+
+  recordsTbody: document.getElementById("recordsTbody"),
+  reloadBtn: document.getElementById("reloadBtn"),
+
+  msg: document.getElementById("msg"),
+  countText: document.getElementById("countText"),
+
+  yearInput: document.getElementById("yearInput"),
+  monthInput: document.getElementById("monthInput"),
+  summaryBtn: document.getElementById("summaryBtn"),
+  summaryBox: document.getElementById("summaryBox"),
+};
+
+let editingId = null;
+
+    // 預設日期：今天
+    const todayISO = new Date().toISOString().slice(0, 10);
+    els.dateInput.value = todayISO;
+
+    // 月統計預設：今年本月
+    const now = new Date();
+    els.yearInput.value = now.getFullYear();
+    els.monthInput.value = now.getMonth() + 1;
+
+    function showMsg(text, isError=false) {
+      els.msg.textContent = text;
+      els.msg.classList.remove("hidden");
+      els.msg.style.background = isError ? "#ffebee" : "#eef";
+      els.msg.style.color = isError ? "#b71c1c" : "#113";
+      setTimeout(() => els.msg.classList.add("hidden"), 2500);
+    }
+
+    function fmtDate(dtStr) {
+      if (!dtStr) return "";
+      // 可能是 2026-01-08T... 或 2026-01-08
+      return dtStr.slice(0, 10);
+    }
+
+    function pill(type) {
+      const t = (type || "").toLowerCase();
+      if (t === "income") return `<span class="pill income">Income</span>`;
+      if (t === "expense") return `<span class="pill expense">Expense</span>`;
+      return `<span class="pill">${type ?? ""}</span>`;
+    }
+
+    async function api(path, options={}) {
+      const res = await fetch(`${API_BASE}${path}`, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        ...options
+      });
+
+      // 204 NoContent
+      if (res.status === 204) return { ok: true, status: 204, data: null };
+
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+      if (!res.ok) {
+        const msg = (data && data.message) ? data.message : `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      return { ok: true, status: res.status, data };
+    }
+
+async function loadCategories() {
+  const { data } = await api("/api/categories");
+
+  els.categorySelect.innerHTML = data.map(c => {
+    const id = c.categoryID ?? c.CategoryID;
+    const name = c.name ?? c.Name;
+    const type = c.type ?? c.Type;
+    return `<option value="${id}">${name} (${type})</option>`;
+  }).join("");
+}
+
+async function loadRecords() {
+  const { data } = await api("/api/records");
+  els.countText.textContent = `共 ${data.length} 筆`;
+
+  els.recordsTbody.innerHTML = data.map(r => {
+    const id = r.recordID ?? r.RecordID;
+    const title = r.title ?? r.Title ?? "";
+    const amount = Number(r.amount ?? r.Amount ?? 0).toLocaleString();
+    const recordDate = r.recordDate ?? r.RecordDate;
+    const note = r.note ?? r.Note ?? "";
+
+    const categoryName = r.categoryName ?? r.CategoryName ?? r.Name ?? "";
+    const categoryType = r.categoryType ?? r.CategoryType ?? r.Type ?? "";
+
+    const cat = `${escapeHtml(categoryName)} ${pill(categoryType)}`;
+
+    return `
+      <tr>
+        <td>${fmtDate(recordDate)}</td>
+        <td>${cat}</td>
+        <td>${escapeHtml(title)}</td>
+        <td style="text-align:right;">${amount}</td>
+        <td>${escapeHtml(note)}</td>
+        <td>
+          <div class="actions">
+            <button class="secondary" data-edit="${id}">編輯</button>
+            <button class="danger" data-del="${id}">刪除</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  els.recordsTbody.querySelectorAll("button[data-del]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-del");
+      if (!confirm(`確定刪除 RecordID=${id} ?`)) return;
+      try {
+        await api(`/api/records/${id}`, { method: "DELETE" });
+        showMsg("刪除成功");
+        await loadRecords();
+      } catch (e) {
+        showMsg(e.message, true);
+      }
+    });
+  });
+    // 綁「編輯」
+els.recordsTbody.querySelectorAll("button[data-edit]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const id = btn.getAttribute("data-edit");
+
+    // 從目前載入的 data 找到那筆
+    const r = data.find(x => String(x.recordID ?? x.RecordID) === String(id));
+    if (!r) return;
+
+    editingId = Number(id);
+
+    // 帶回左邊表單
+    els.categorySelect.value = (r.categoryID ?? r.CategoryID);
+    els.titleInput.value = (r.title ?? r.Title ?? "");
+    els.amountInput.value = (r.amount ?? r.Amount ?? "");
+
+    const d = (r.recordDate ?? r.RecordDate);
+    els.dateInput.value = d ? String(d).slice(0, 10) : todayISO;
+
+    els.noteInput.value = (r.note ?? r.Note ?? "");
+
+    // UI 切換
+    els.addBtn.textContent = "更新";
+    els.cancelEditBtn.classList.remove("hidden");
+    showMsg(`進入編輯模式：RecordID=${id}`);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+});
+}
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+function exitEditMode(clearForm = false) {
+  editingId = null;
+
+  // UI 還原
+  els.addBtn.textContent = "新增";
+  els.cancelEditBtn.classList.add("hidden");
+
+  if (clearForm) {
+    els.titleInput.value = "";
+    els.amountInput.value = "";
+    els.noteInput.value = "";
+    els.dateInput.value = todayISO;
+    // 分類通常不一定要清空，你要清也可以：
+    // els.categorySelect.selectedIndex = 0;
+  }
+}
+    async function addRecord() {
+  const categoryID = Number(els.categorySelect.value);
+  const title = els.titleInput.value.trim();
+  const amount = Number(els.amountInput.value);
+  const date = els.dateInput.value; // YYYY-MM-DD
+  const note = els.noteInput.value.trim() || null;
+
+  if (!title) return showMsg("請輸入標題", true);
+  if (!amount || amount <= 0) return showMsg("金額需大於 0", true);
+
+  const recordDate = date ? `${date}T00:00:00` : null;
+
+  const payload = { categoryID, title, amount, recordDate, note };
+
+  try {
+    els.addBtn.disabled = true;
+
+    if (editingId == null) {
+      // 新增
+      await api("/api/records", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      showMsg("新增成功");
+    } else {
+      // 更新
+      await api(`/api/records/${editingId}`, {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
+      showMsg(`更新成功（RecordID=${editingId}）`);
+    }
+
+    // 回到新增模式 + 清空
+    exitEditMode(true);
+    await loadRecords();
+
+    // 如果你有做月統計 summary，可以順便更新（可選）
+    // await loadSummary();
+
+  } catch (e) {
+    showMsg(e.message, true);
+  } finally {
+    els.addBtn.disabled = false;
+  }
+}
+
+    async function loadSummary() {
+      const year = Number(els.yearInput.value);
+      const month = Number(els.monthInput.value);
+      if (!year || !month) return showMsg("請輸入 year / month", true);
+
+      try {
+        const { data } = await api(`/api/records/summary?year=${year}&month=${month}`);
+        els.summaryBox.classList.remove("hidden");
+        els.summaryBox.innerHTML = `
+          <div><b>${data.year}-${String(data.month).padStart(2,"0")} 統計</b></div>
+          <div>收入：${Number(data.totalIncome).toLocaleString()}</div>
+          <div>支出：${Number(data.totalExpense).toLocaleString()}</div>
+          <div><b>結餘：${Number(data.balance).toLocaleString()}</b></div>
+        `;
+      } catch (e) {
+        els.summaryBox.classList.remove("hidden");
+        els.summaryBox.textContent = `查詢失敗：${e.message}`;
+      }
+    }
+
+    // events
+    els.addBtn.addEventListener("click", addRecord);
+    els.cancelEditBtn.addEventListener("click", () => {
+  exitEditMode(true);
+  showMsg("已取消編輯");
+});
+    els.reloadBtn.addEventListener("click", loadRecords);
+    els.resetBtn.addEventListener("click", () => {
+      exitEditMode(true);
+    });
+    els.summaryBtn.addEventListener("click", loadSummary);
+
+    // init
+    (async function init(){
+      try {
+        await loadCategories();
+        await loadRecords();
+      } catch (e) {
+        showMsg(`初始化失敗：${e.message}`, true);
+      }
+    })();
+  </script>
+</body>
+</html>
