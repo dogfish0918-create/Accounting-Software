@@ -1,13 +1,13 @@
 ﻿using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.SqlClient;
+using System.Data;
 
 [ApiController]
 [Route("api/records")]
 public class RecordsApiController : ControllerBase
 {
-    private readonly SqlConnection _db;
-    public RecordsApiController(SqlConnection db) => _db = db;
+    private readonly IDbConnection _db;
+    public RecordsApiController(IDbConnection db) => _db = db;
 
     // 查全部記帳（含分類名稱與類型）
     [HttpGet]
@@ -23,8 +23,8 @@ SELECT
   r.Note,
   c.Name AS CategoryName,
   c.Type AS CategoryType
-FROM dbo.Records r
-JOIN dbo.Categories c ON r.CategoryID = c.CategoryID
+FROM Records r
+JOIN Categories c ON r.CategoryID = c.CategoryID
 ORDER BY r.RecordDate DESC, r.RecordID DESC;
 ";
         var data = await _db.QueryAsync(sql);
@@ -36,9 +36,9 @@ ORDER BY r.RecordDate DESC, r.RecordID DESC;
     public async Task<IActionResult> Create([FromBody] CreateRecordDto dto)
     {
         var sql = @"
-INSERT INTO dbo.Records (CategoryID, Title, Amount, RecordDate, Note)
+INSERT INTO Records (CategoryID, Title, Amount, RecordDate, Note)
 VALUES (@CategoryID, @Title, @Amount, @RecordDate, @Note);
-SELECT CAST(SCOPE_IDENTITY() as int);
+SELECT last_insert_rowid();
 ";
 
         var param = new
@@ -52,12 +52,13 @@ SELECT CAST(SCOPE_IDENTITY() as int);
 
         try
         {
-            var id = await _db.ExecuteScalarAsync<int>(sql, param);
+            // SQLite last_insert_rowid() 通常回 long
+            var id = await _db.ExecuteScalarAsync<long>(sql, param);
             return Created($"/api/records/{id}", new { RecordID = id });
         }
-        catch (SqlException ex) when (ex.Number == 547) // FK fail
+        catch (Exception)
         {
-            return BadRequest(new { message = "CategoryID 不存在（外鍵失敗）" });
+            return BadRequest(new { message = "新增失敗：CategoryID 不存在或資料不合法" });
         }
     }
 
@@ -66,7 +67,7 @@ SELECT CAST(SCOPE_IDENTITY() as int);
     public async Task<IActionResult> Update(int id, [FromBody] UpdateRecordDto dto)
     {
         var sql = @"
-UPDATE dbo.Records
+UPDATE Records
 SET CategoryID=@CategoryID,
     Title=@Title,
     Amount=@Amount,
@@ -87,11 +88,13 @@ WHERE RecordID=@id;
                 dto.Note
             });
 
-            return rows == 0 ? NotFound(new { message = "找不到該筆 RecordID" }) : NoContent();
+            return rows == 0
+                ? NotFound(new { message = "找不到該筆 RecordID" })
+                : NoContent();
         }
-        catch (SqlException ex) when (ex.Number == 547)
+        catch (Exception)
         {
-            return BadRequest(new { message = "CategoryID 不存在（外鍵失敗）" });
+            return BadRequest(new { message = "更新失敗：CategoryID 不存在或資料不合法" });
         }
     }
 
@@ -100,31 +103,33 @@ WHERE RecordID=@id;
     public async Task<IActionResult> Delete(int id)
     {
         var rows = await _db.ExecuteAsync(
-            "DELETE FROM dbo.Records WHERE RecordID=@id",
+            "DELETE FROM Records WHERE RecordID=@id",
             new { id });
 
         return rows == 0
             ? NotFound(new { message = "找不到該筆 RecordID" })
             : NoContent();
     }
-    // 月統計：收入 / 支出 / 結餘
+
+    // 月統計：收入 / 支出 / 結餘（SQLite 版）
     [HttpGet("summary")]
     public async Task<IActionResult> GetMonthlySummary([FromQuery] int year, [FromQuery] int month)
     {
         var sql = @"
 SELECT
-    COALESCE(SUM(CASE WHEN c.Type = 'Income' THEN r.Amount END), 0) AS TotalIncome,
-    COALESCE(SUM(CASE WHEN c.Type = 'Expense' THEN r.Amount END), 0) AS TotalExpense
-FROM dbo.Records r
-JOIN dbo.Categories c ON r.CategoryID = c.CategoryID
-WHERE YEAR(r.RecordDate) = @year
-  AND MONTH(r.RecordDate) = @month;
+  COALESCE(SUM(CASE WHEN c.Type = 'Income' THEN r.Amount ELSE 0 END), 0) AS TotalIncome,
+  COALESCE(SUM(CASE WHEN c.Type = 'Expense' THEN r.Amount ELSE 0 END), 0) AS TotalExpense
+FROM Records r
+JOIN Categories c ON r.CategoryID = c.CategoryID
+WHERE strftime('%Y', r.RecordDate) = printf('%04d', @year)
+  AND strftime('%m', r.RecordDate) = printf('%02d', @month);
 ";
 
-        dynamic result = await _db.QueryFirstOrDefaultAsync(sql, new { year, month });
+        var result = await _db.QueryFirstOrDefaultAsync(sql, new { year, month });
 
-        int income = (int)result.TotalIncome;
-        int expense = (int)result.TotalExpense;
+        // SQLite/Dapper 可能回 long/double，這樣轉最穩
+        long income = result?.TotalIncome == null ? 0 : Convert.ToInt64(result.TotalIncome);
+        long expense = result?.TotalExpense == null ? 0 : Convert.ToInt64(result.TotalExpense);
 
         return Ok(new
         {
@@ -136,9 +141,7 @@ WHERE YEAR(r.RecordDate) = @year
         });
     }
 
-
     // Swagger 會顯示這些 DTO 作為輸入格式
     public record CreateRecordDto(int CategoryID, string Title, int Amount, DateTime? RecordDate, string? Note);
     public record UpdateRecordDto(int CategoryID, string Title, int Amount, DateTime? RecordDate, string? Note);
-
 }
